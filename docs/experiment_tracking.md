@@ -13,6 +13,45 @@ pip install biapy[mlflow]     # MLflow
 pip install biapy[all-loggers] # both
 ```
 
+## Authentication
+
+Both wandb and MLflow may require API credentials depending on where your
+tracking server is hosted. Set them as environment variables before running
+BiaPy.
+
+### Weights & Biases
+
+```bash
+# Option 1: interactive login (writes token to ~/.netrc)
+wandb login
+
+# Option 2: set the API key directly
+export WANDB_API_KEY="your-api-key"
+```
+
+You can find your API key at <https://wandb.ai/authorize>.
+
+### MLflow
+
+For a **local** MLflow server (`mlflow ui`) no authentication is needed.
+
+For a **remote** or **managed** MLflow server (e.g. Databricks, Azure ML,
+or a self-hosted instance behind auth), set the relevant environment variables:
+
+```bash
+# Generic remote MLflow server
+export MLFLOW_TRACKING_URI="https://mlflow.example.com"
+export MLFLOW_TRACKING_USERNAME="your-username"
+export MLFLOW_TRACKING_TOKEN="your-token"
+
+# Databricks-hosted MLflow
+export DATABRICKS_HOST="https://your-workspace.cloud.databricks.com"
+export DATABRICKS_TOKEN="your-databricks-token"
+```
+
+> **Tip:** Add these `export` lines to your `~/.bashrc` (or the activation
+> script of your virtual environment) so they persist across sessions.
+
 ## Configuration
 
 Add a `LOG` section to your YAML config file. TensorBoard remains the default
