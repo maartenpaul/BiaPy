@@ -14,7 +14,8 @@ from typing import Callable, Optional
 from torch.utils.data import DataLoader
 from yacs.config import CfgNode as CN
 
-from biapy.utils.misc import MetricLogger, SmoothedValue, TensorboardLogger, all_reduce_mean
+from biapy.utils.misc import MetricLogger, SmoothedValue, all_reduce_mean
+from biapy.utils.loggers.base_logger import BaseLogger
 from biapy.engine import Scheduler
 from torch.optim.lr_scheduler import ReduceLROnPlateau, OneCycleLR
 from biapy.engine.schedulers.warmup_cosine_decay import WarmUpCosineDecayScheduler
@@ -32,7 +33,7 @@ def train_one_epoch(
     optimizer: Optimizer,
     device: torch.device,
     epoch: int,
-    log_writer: Optional[TensorboardLogger] = None,
+    log_writer: Optional[BaseLogger] = None,
     lr_scheduler: Optional[Scheduler] = None,
     verbose: bool = False,
     memory_bank: Optional[MemoryBank] = None,
@@ -67,8 +68,8 @@ def train_one_epoch(
         Device to use.
     epoch : int
         Current epoch number.
-    log_writer : TensorboardLogger, optional
-        Logger for TensorBoard.
+    log_writer : BaseLogger, optional
+        Experiment tracking logger (TensorBoard, wandb, MLflow, or composite).
     lr_scheduler : Scheduler, optional
         Learning rate scheduler.
     verbose : bool, optional

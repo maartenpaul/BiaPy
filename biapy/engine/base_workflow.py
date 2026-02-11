@@ -47,7 +47,6 @@ from biapy.utils.misc import (
     save_model,
     time_text,
     load_model_checkpoint,
-    TensorboardLogger,
     MetricLogger,
     to_pytorch_format,
     to_numpy_format,
@@ -55,6 +54,7 @@ from biapy.utils.misc import (
     setup_for_distributed,
     update_dict_with_existing_keys,
 )
+from biapy.utils.loggers import build_logger
 from biapy.engine.check_configuration import (
     convert_old_model_cfg_to_current_version,
     diff_between_configs,
@@ -819,7 +819,9 @@ class Base_Workflow(metaclass=ABCMeta):
         if self.global_rank == 0:
             os.makedirs(self.cfg.LOG.LOG_DIR, exist_ok=True)
             os.makedirs(self.cfg.PATHS.CHECKPOINT, exist_ok=True)
-            self.log_writer = TensorboardLogger(log_dir=self.cfg.LOG.TENSORBOARD_LOG_DIR)
+            self.log_writer = build_logger(self.cfg, self.job_identifier)
+            if self.log_writer is not None:
+                self.log_writer.log_hyperparameters(dict(self.cfg))
         else:
             self.log_writer = None
 
@@ -909,7 +911,7 @@ class Base_Workflow(metaclass=ABCMeta):
                     or epoch + 1 == self.cfg.TRAIN.EPOCHS
                     and is_main_process()
                 ):
-                    save_model(
+                    ckpt_path = save_model(
                         cfg=self.cfg,
                         biapy_version=biapy.__version__,
                         jobname=self.job_identifier,
@@ -919,6 +921,8 @@ class Base_Workflow(metaclass=ABCMeta):
                         model_build_kwargs=self.model_build_kwargs,
                         extension=self.cfg.MODEL.OUT_CHECKPOINT_FORMAT,
                     )
+                    if self.cfg.LOG.LOG_ARTIFACTS and self.log_writer and ckpt_path:
+                        self.log_writer.log_artifact(str(ckpt_path))
 
             # Validation
             if self.val_generator:
@@ -963,6 +967,8 @@ class Base_Workflow(metaclass=ABCMeta):
                             model_build_kwargs=self.model_build_kwargs,
                             extension=self.cfg.MODEL.OUT_CHECKPOINT_FORMAT,
                         )
+                        if self.cfg.LOG.LOG_ARTIFACTS and self.log_writer and self.checkpoint_path:
+                            self.log_writer.log_artifact(str(self.checkpoint_path))
                 print(f"[Val] best loss: {self.val_best_loss:.4f} best " + m)
 
                 # Store validation stats
@@ -1011,6 +1017,20 @@ class Base_Workflow(metaclass=ABCMeta):
                         self.job_identifier,
                         self.cfg.PATHS.CHARTS,
                     )
+                    if self.cfg.LOG.LOG_ARTIFACTS and self.log_writer:
+                        loss_chart = os.path.join(
+                            self.cfg.PATHS.CHARTS,
+                            self.job_identifier + "_loss.png",
+                        )
+                        if os.path.exists(loss_chart):
+                            self.log_writer.log_artifact(loss_chart)
+                        for metric_name in self.train_metric_names:
+                            metric_chart = os.path.join(
+                                self.cfg.PATHS.CHARTS,
+                                self.job_identifier + "_" + metric_name + ".png",
+                            )
+                            if os.path.exists(metric_chart):
+                                self.log_writer.log_artifact(metric_chart)
 
             if self.val_generator and self.early_stopping:
                 self.early_stopping(test_stats["loss"])
@@ -1044,6 +1064,9 @@ class Base_Workflow(metaclass=ABCMeta):
             for line in self.train_metrics_message.split("\n"):
                 print(line)
         print("Finished Training")
+
+        if self.log_writer:
+            self.log_writer.finish()
 
         if is_dist_avail_and_initialized():
             print(f"[Rank {get_rank()} ({os.getpid()})] Process waiting (train finished, step 1) . . . ")

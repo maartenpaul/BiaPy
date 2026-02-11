@@ -1766,6 +1766,30 @@ class Config:
         _C.LOG.TENSORBOARD_LOG_DIR = os.path.join(_C.PATHS.RESULT_DIR.PATH, "tensorboard")
         _C.LOG.LOG_FILE_PREFIX = job_identifier
         _C.LOG.CHART_CREATION_FREQ = 5
+        # Logger backend selection: "TENSORBOARD", "WANDB", "MLFLOW", "ALL", "NONE"
+        _C.LOG.LOGGER = "TENSORBOARD"
+        # Whether to log model checkpoints and charts as artifacts to wandb/mlflow
+        _C.LOG.LOG_ARTIFACTS = False
+
+        # ---- Weights & Biases settings ----
+        _C.LOG.WANDB = CN()
+        # wandb project name; defaults to job_identifier if empty
+        _C.LOG.WANDB.PROJECT = ""
+        # wandb entity (team/username); empty = default
+        _C.LOG.WANDB.ENTITY = ""
+        # List of string tags
+        _C.LOG.WANDB.TAGS = []
+        # wandb run group
+        _C.LOG.WANDB.GROUP = ""
+        # Local directory for wandb files; empty = default
+        _C.LOG.WANDB.SAVE_DIR = ""
+
+        # ---- MLflow settings ----
+        _C.LOG.MLFLOW = CN()
+        # MLflow tracking URI (e.g. "http://localhost:5000"); empty = default local store
+        _C.LOG.MLFLOW.TRACKING_URI = ""
+        # MLflow experiment name; defaults to job_identifier if empty
+        _C.LOG.MLFLOW.EXPERIMENT_NAME = ""
 
         self._C = _C
 

@@ -2844,6 +2844,31 @@ def check_configuration(cfg, jobname, check_data_paths=True):
                 "'TEST.POST_PROCESSING.REMOVE_CLOSE_POINTS_RADIUS' needs to be set when 'TEST.POST_PROCESSING.REMOVE_CLOSE_POINTS' is True"
             )
 
+    #### Logger validation ####
+    valid_loggers = ["TENSORBOARD", "WANDB", "MLFLOW", "ALL", "NONE"]
+    if cfg.LOG.LOGGER.upper() not in valid_loggers:
+        raise ValueError(
+            "'LOG.LOGGER' must be one of {}, got '{}'".format(valid_loggers, cfg.LOG.LOGGER)
+        )
+
+    if cfg.LOG.LOGGER.upper() in ("WANDB", "ALL"):
+        try:
+            import wandb  # noqa: F401
+        except ImportError:
+            raise ImportError(
+                "LOG.LOGGER is set to '{}' but wandb is not installed. "
+                "Install it with: pip install wandb".format(cfg.LOG.LOGGER)
+            )
+
+    if cfg.LOG.LOGGER.upper() in ("MLFLOW", "ALL"):
+        try:
+            import mlflow  # noqa: F401
+        except ImportError:
+            raise ImportError(
+                "LOG.LOGGER is set to '{}' but mlflow is not installed. "
+                "Install it with: pip install mlflow".format(cfg.LOG.LOGGER)
+            )
+
 # Helper for common check
 def _assert_bool(d, k, ctx):
     assert k in d, f"'{ctx}' must have '{k}' key"

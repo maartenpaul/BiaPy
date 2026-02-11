@@ -661,7 +661,12 @@ def time_text(t):
 
 
 class TensorboardLogger(object):
-    """A simple wrapper for `tensorboardX.SummaryWriter` to log scalar metrics."""
+    """A simple wrapper for `tensorboardX.SummaryWriter` to log scalar metrics.
+
+    .. deprecated::
+        Use :class:`biapy.utils.loggers.TensorboardLogger` instead, which implements
+        the :class:`~biapy.utils.loggers.BaseLogger` interface.
+    """
 
     def __init__(self, log_dir):
         """
