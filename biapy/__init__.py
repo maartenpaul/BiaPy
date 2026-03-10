@@ -20,6 +20,7 @@ import argparse
 import os
 import sys
 from ._biapy import BiaPy
+from .predict import predict
 
 
 def main():
@@ -81,26 +82,16 @@ def main():
     and calls its `run_job` method to start the workflow. The program exits
     with status 0 upon successful completion.
     """
+    # Route "biapy predict ..." to the simplified inference CLI
+    if len(sys.argv) > 1 and sys.argv[1] == "predict":
+        from .predict import predict_from_cli
+
+        predict_from_cli(sys.argv[2:])
+        sys.exit(0)
+
     ##########################
     #   ARGS COMPROBATION    #
     ##########################
-
-    # Normal exec:
-    # python -u main.py \
-    #     --config $input_job_cfg_file \
-    #     --result_dir $result_dir \
-    #     --name $job_name \
-    #     --run_id $job_counter \
-    #     --gpu 0
-    # Distributed:
-    # python -u -m torch.distributed.run \
-    #     --nproc_per_node=2 \
-    #     main.py \
-    #     --config $input_job_cfg_file \
-    #     --result_dir $result_dir \
-    #     --name $job_name \
-    #     --run_id $job_counter \
-    #     --gpu 0,1
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, help="Path to the configuration file")
