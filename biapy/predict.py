@@ -16,7 +16,7 @@ import tempfile
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
@@ -365,7 +365,7 @@ def predict_from_array(
     """
     import tifffile
 
-    single = isinstance(images, np.ndarray) and images.ndim <= 4
+    single = isinstance(images, np.ndarray)
     if single:
         images = [images]
 
@@ -413,17 +413,16 @@ def predict_from_array(
         for img_name in image_names:
             stem = os.path.splitext(img_name)[0]
             out_path = os.path.join(per_image_dir, f"{stem}.tif")
-            if os.path.exists(out_path):
+            try:
                 results.append(tifffile.imread(out_path))
-            else:
+            except FileNotFoundError:
                 # Fall back: look for any matching file
                 matches = glob.glob(os.path.join(per_image_dir, f"{stem}.*"))
-                if matches:
-                    results.append(tifffile.imread(matches[0]))
-                else:
+                if not matches:
                     raise FileNotFoundError(
                         f"No output found for {img_name!r} in {per_image_dir}"
                     )
+                results.append(tifffile.imread(matches[0]))
     finally:
         shutil.rmtree(tmp_input, ignore_errors=True)
         if manage_output:
