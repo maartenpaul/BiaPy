@@ -38,6 +38,55 @@ This repository is actively under development by the [BiaPy Team](https://biapyx
 
 ![BiaPy workflows](https://raw.githubusercontent.com/BiaPyX/BiaPy/master/img/BiaPy-workflow-readme.svg)
 
+## Quick start: simplified inference
+
+BiaPy provides a simplified CLI and Python API for running inference with a trained model — no YAML configuration file required. The configuration is extracted directly from the checkpoint (BiaPy v3.5.1+).
+
+### Command line
+
+```bash
+# Minimal invocation — just a checkpoint and input images
+biapy predict --model my_model.pth --input images/
+
+# With options
+biapy predict \
+    --model my_model.pth \
+    --input images/ \
+    --output results/ \
+    --gpu 0 \
+    --patch-size 256,256,1
+```
+
+**CLI options:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--model` | Path to a `.pth` checkpoint (BiaPy v3.5.1+) | *(required)* |
+| `--input` | Directory containing input images | *(required)* |
+| `--output` | Output directory | `./biapy_predictions` |
+| `--gpu` | GPU id (e.g. `0`). Omit for CPU | CPU |
+| `--patch-size` | Override patch size, e.g. `256,256,1` | from checkpoint |
+| `--name` | Job name | `biapy_predict` |
+| `--run-id` | Run number | `1` |
+
+### Python API
+
+```python
+from biapy import predict
+
+predict(
+    model="my_model.pth",
+    input_path="images/",
+    output="results/",
+    gpu="0",
+)
+```
+
+> **Note:** The simplified API requires checkpoints from BiaPy v3.5.1 or later
+> (which embed the full configuration). For older checkpoints or advanced usage,
+> use the standard interface with a YAML configuration file:
+> `biapy --config your_config.yaml --result_dir results`
+
 ## Description videos
 Find a comprehensive overview of BiaPy and its functionality in the following videos:
 

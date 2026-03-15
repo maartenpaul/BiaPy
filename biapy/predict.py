@@ -9,10 +9,10 @@ automatically.
 """
 
 import os
-import sys
 import argparse
 import tempfile
 from functools import partial
+from pathlib import Path
 from typing import Optional, Tuple
 
 import torch
@@ -112,28 +112,35 @@ def _build_inference_config(
     cfg_dict = _cfgnode_to_dict(checkpoint_cfg)
     cfg_dict = convert_old_model_cfg_to_current_version(cfg_dict)
 
-    # --- Enforce inference-only settings ---
-    cfg_dict.setdefault("TRAIN", {})
-    cfg_dict["TRAIN"]["ENABLE"] = False
-
-    cfg_dict.setdefault("TEST", {})
-    cfg_dict["TEST"]["ENABLE"] = True
-
-    cfg_dict.setdefault("DATA", {})
-    cfg_dict["DATA"].setdefault("TEST", {})
-    cfg_dict["DATA"]["TEST"]["PATH"] = os.path.abspath(input_path)
-    cfg_dict["DATA"]["TEST"]["LOAD_GT"] = False
-
-    cfg_dict.setdefault("MODEL", {})
-    cfg_dict["MODEL"]["LOAD_CHECKPOINT"] = True
-    # Config is already applied — don't re-extract from checkpoint
-    cfg_dict["MODEL"]["LOAD_MODEL_FROM_CHECKPOINT"] = False
-
-    cfg_dict.setdefault("PATHS", {})
-    cfg_dict["PATHS"]["CHECKPOINT_FILE"] = os.path.abspath(checkpoint_path)
-
+    # Inference-only overrides
+    overrides = {
+        "TRAIN": {"ENABLE": False},
+        "TEST": {"ENABLE": True},
+        "DATA": {
+            "TEST": {
+                "PATH": os.path.abspath(input_path),
+                "LOAD_GT": False,
+            },
+        },
+        "MODEL": {
+            "LOAD_CHECKPOINT": True,
+            # Config is already applied — don't re-extract from checkpoint
+            "LOAD_MODEL_FROM_CHECKPOINT": False,
+        },
+        "PATHS": {"CHECKPOINT_FILE": os.path.abspath(checkpoint_path)},
+    }
     if patch_size is not None:
-        cfg_dict["DATA"]["PATCH_SIZE"] = list(patch_size)
+        overrides["DATA"]["PATCH_SIZE"] = list(patch_size)
+
+    # Deep-merge overrides into the checkpoint config
+    for section, values in overrides.items():
+        cfg_dict.setdefault(section, {})
+        for key, val in values.items():
+            if isinstance(val, dict):
+                cfg_dict[section].setdefault(key, {})
+                cfg_dict[section][key].update(val)
+            else:
+                cfg_dict[section][key] = val
 
     return cfg_dict
 
@@ -144,7 +151,7 @@ def _build_inference_config(
 
 def predict(
     model: str,
-    input: str,
+    input_path: str,
     output: str = "./biapy_predictions",
     gpu: Optional[str] = None,
     patch_size: Optional[tuple] = None,
@@ -163,7 +170,7 @@ def predict(
     model : str
         Path to a ``.pth`` checkpoint file that contains an embedded
         BiaPy configuration.
-    input : str
+    input_path : str
         Path to a directory of input images.
     output : str, optional
         Directory where results will be written.  Defaults to
@@ -186,20 +193,20 @@ def predict(
     Raises
     ------
     FileNotFoundError
-        If *model* or *input* do not exist.
+        If *model* or *input_path* do not exist.
     ValueError
         If the checkpoint does not contain an embedded configuration.
 
     Examples
     --------
     >>> from biapy import predict
-    >>> predict(model="my_model.pth", input="images/", output="results/")
+    >>> predict(model="my_model.pth", input_path="images/", output="results/")
     """
     model = str(model)
-    input_path = str(input)
+    input_path = str(input_path)
 
-    if not os.path.exists(input_path):
-        raise FileNotFoundError(f"Input path not found: {input_path}")
+    if not os.path.isdir(input_path):
+        raise FileNotFoundError(f"Input directory not found: {input_path}")
 
     # 1. Extract config from checkpoint
     checkpoint_cfg, _ = extract_config_from_checkpoint(model)
@@ -229,8 +236,7 @@ def predict(
         )
         biapy.run_job()
     finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        Path(tmp_path).unlink(missing_ok=True)
 
     return os.path.abspath(output)
 
@@ -290,7 +296,7 @@ def predict_from_cli(argv=None):
 
     output_dir = predict(
         model=args.model,
-        input=args.input,
+        input_path=args.input,
         output=args.output,
         gpu=args.gpu,
         patch_size=patch_size,
