@@ -20,7 +20,7 @@ import argparse
 import os
 import sys
 from ._biapy import BiaPy
-from .predict import predict
+from .predict import predict, predict_from_array
 
 
 def main():

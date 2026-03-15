@@ -16,10 +16,12 @@ import tempfile
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
+import numpy as np
 import torch
 import yaml
+from numpy.typing import NDArray
 from yacs.config import CfgNode as CN
 
 from biapy.engine.check_configuration import convert_old_model_cfg_to_current_version
@@ -304,6 +306,130 @@ def predict(
             Path(tmp_path).unlink(missing_ok=True)
 
     return os.path.abspath(output)
+
+
+def predict_from_array(
+    model: str,
+    images: Union[NDArray, Sequence[NDArray]],
+    *,
+    image_names: Optional[Sequence[str]] = None,
+    output: Optional[str] = None,
+    gpu: Optional[str] = None,
+    patch_size: Optional[tuple] = None,
+    name: str = "biapy_predict",
+    run_id: int = 1,
+) -> Union[NDArray, List[NDArray]]:
+    """
+    Run inference on in-memory numpy arrays.
+
+    Writes arrays to temporary TIFFs, runs BiaPy prediction, and reads the
+    results back as numpy arrays.  This is the recommended entry point when
+    images are already loaded in memory (e.g. from a Fractal task or another
+    pipeline).
+
+    Parameters
+    ----------
+    model : str
+        Path to a ``.pth`` checkpoint (BiaPy v3.5.1+).
+    images : ndarray or sequence of ndarray
+        One image or a list of images.  Each array should have shape
+        ``(Y, X)`` , ``(Y, X, C)``, ``(Z, Y, X)``, or ``(Z, Y, X, C)``.
+    image_names : sequence of str, optional
+        Base filenames for the temporary TIFFs (without extension).  If
+        *None*, images are named ``image_000``, ``image_001``, etc.
+    output : str or None, optional
+        Directory for BiaPy output.  If *None* a temporary directory is
+        used and cleaned up after the results are read back.
+    gpu : str or None, optional
+        GPU device id (e.g. ``"0"``).  *None* uses the CPU.
+    patch_size : tuple or None, optional
+        Override patch size from the checkpoint.
+    name : str, optional
+        Job name (default ``"biapy_predict"``).
+    run_id : int, optional
+        Run number.
+
+    Returns
+    -------
+    ndarray or list of ndarray
+        If a single array was passed, returns a single result array.
+        If a list was passed, returns a list of result arrays in the same
+        order.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from biapy import predict_from_array
+    >>> img = np.random.rand(256, 256).astype(np.float32)
+    >>> result = predict_from_array(model="model.pth", images=img)
+    """
+    import tifffile
+
+    single = isinstance(images, np.ndarray) and images.ndim <= 4
+    if single:
+        images = [images]
+
+    n = len(images)
+    if image_names is None:
+        image_names = [f"image_{i:03d}" for i in range(n)]
+    elif len(image_names) != n:
+        raise ValueError(
+            f"image_names length ({len(image_names)}) does not match "
+            f"number of images ({n})."
+        )
+
+    # Determine whether we manage the output dir ourselves
+    manage_output = output is None
+    if manage_output:
+        output_dir = tempfile.mkdtemp(prefix="biapy_out_")
+    else:
+        output_dir = os.path.abspath(output)
+
+    tmp_input = tempfile.mkdtemp(prefix="biapy_in_")
+    try:
+        # Write arrays as TIFFs
+        for arr, img_name in zip(images, image_names):
+            stem = os.path.splitext(img_name)[0]
+            tifffile.imwrite(os.path.join(tmp_input, f"{stem}.tif"), arr)
+
+        # Run prediction via the existing path-based API
+        predict(
+            model=model,
+            input_path=tmp_input,
+            output=output_dir,
+            gpu=gpu,
+            patch_size=patch_size,
+            name=name,
+            run_id=run_id,
+        )
+
+        # Read results back
+        job_id = f"{name}_{run_id}"
+        per_image_dir = os.path.join(
+            output_dir, name, "results", job_id, "per_image"
+        )
+
+        results: List[NDArray] = []
+        for img_name in image_names:
+            stem = os.path.splitext(img_name)[0]
+            out_path = os.path.join(per_image_dir, f"{stem}.tif")
+            if os.path.exists(out_path):
+                results.append(tifffile.imread(out_path))
+            else:
+                # Fall back: look for any matching file
+                matches = glob.glob(os.path.join(per_image_dir, f"{stem}.*"))
+                if matches:
+                    results.append(tifffile.imread(matches[0]))
+                else:
+                    raise FileNotFoundError(
+                        f"No output found for {img_name!r} in {per_image_dir}"
+                    )
+    finally:
+        shutil.rmtree(tmp_input, ignore_errors=True)
+        if manage_output:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    return results[0] if single else results
 
 
 # ---------------------------------------------------------------------------
