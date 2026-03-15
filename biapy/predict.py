@@ -8,12 +8,15 @@ v3.5.1+ checkpoints embed it) and a temporary config is generated
 automatically.
 """
 
+import glob
 import os
 import argparse
+import shutil
 import tempfile
+from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 import yaml
@@ -35,6 +38,62 @@ def _cfgnode_to_dict(node):
     if isinstance(node, tuple):
         return list(node)
     return node
+
+
+def _collect_image_paths(input_path: str) -> List[str]:
+    """
+    Resolve *input_path* to a list of absolute image file paths.
+
+    *input_path* may be:
+    - a directory  → all files directly inside it
+    - a single file path  → that one file
+    - a glob pattern (contains ``*`` or ``?``) → matching files
+    """
+    if os.path.isdir(input_path):
+        return []  # directory mode — no symlinking needed
+    if os.path.isfile(input_path):
+        return [os.path.abspath(input_path)]
+    # Try as a glob pattern
+    matches = sorted(glob.glob(input_path))
+    files = [os.path.abspath(m) for m in matches if os.path.isfile(m)]
+    if not files:
+        raise FileNotFoundError(
+            f"No images found for input: {input_path!r}. "
+            "Provide a directory, a file path, or a glob pattern (e.g. 'images/*.tif')."
+        )
+    return files
+
+
+@contextmanager
+def _input_as_directory(input_path: str):
+    """
+    Context manager that yields a directory path suitable for BiaPy.
+
+    If *input_path* is already a directory, yields it directly.
+    Otherwise (single file or glob), creates a temporary directory
+    containing symlinks to the resolved files, and cleans it up on exit.
+    """
+    files = _collect_image_paths(input_path)
+    if not files:
+        # Already a directory
+        yield os.path.abspath(input_path)
+        return
+
+    tmp_dir = tempfile.mkdtemp(prefix="biapy_input_")
+    try:
+        for f in files:
+            link = os.path.join(tmp_dir, os.path.basename(f))
+            # Handle duplicate basenames by appending a suffix
+            if os.path.exists(link):
+                stem, ext = os.path.splitext(os.path.basename(f))
+                counter = 1
+                while os.path.exists(link):
+                    link = os.path.join(tmp_dir, f"{stem}_{counter}{ext}")
+                    counter += 1
+            os.symlink(f, link)
+        yield tmp_dir
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def extract_config_from_checkpoint(
@@ -162,7 +221,7 @@ def predict(
     Run inference with a trained BiaPy model.
 
     This is the simplified entry point: just provide a model checkpoint and
-    an input directory.  The full configuration is read from the checkpoint
+    input images.  The full configuration is read from the checkpoint
     (BiaPy v3.5.1+).
 
     Parameters
@@ -171,7 +230,12 @@ def predict(
         Path to a ``.pth`` checkpoint file that contains an embedded
         BiaPy configuration.
     input_path : str
-        Path to a directory of input images.
+        Input images. Can be:
+
+        - a **directory** of images (e.g. ``"images/"``)
+        - a **single file** (e.g. ``"images/cell.tif"``)
+        - a **glob pattern** (e.g. ``"images/*.tif"``,
+          ``"data/**/*.png"``)
     output : str, optional
         Directory where results will be written.  Defaults to
         ``"./biapy_predictions"``.
@@ -193,7 +257,7 @@ def predict(
     Raises
     ------
     FileNotFoundError
-        If *model* or *input_path* do not exist.
+        If *model* or *input_path* do not exist / match no files.
     ValueError
         If the checkpoint does not contain an embedded configuration.
 
@@ -201,42 +265,43 @@ def predict(
     --------
     >>> from biapy import predict
     >>> predict(model="my_model.pth", input_path="images/", output="results/")
+    >>> predict(model="my_model.pth", input_path="images/cell.tif")
+    >>> predict(model="my_model.pth", input_path="images/*.tif")
     """
     model = str(model)
     input_path = str(input_path)
 
-    if not os.path.isdir(input_path):
-        raise FileNotFoundError(f"Input directory not found: {input_path}")
-
     # 1. Extract config from checkpoint
     checkpoint_cfg, _ = extract_config_from_checkpoint(model)
 
-    # 2. Build inference config
-    cfg_dict = _build_inference_config(
-        checkpoint_cfg,
-        checkpoint_path=model,
-        input_path=input_path,
-        patch_size=patch_size,
-    )
-
-    # 3. Write temporary YAML and run through standard BiaPy
-    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".yaml", prefix="biapy_predict_")
-    try:
-        with os.fdopen(tmp_fd, "w") as f:
-            yaml.dump(cfg_dict, f, default_flow_style=False)
-
-        from biapy._biapy import BiaPy
-
-        biapy = BiaPy(
-            config=tmp_path,
-            result_dir=os.path.abspath(output),
-            name=name,
-            run_id=run_id,
-            gpu=gpu or "",
+    # 2. Resolve input to a directory (symlinks single files / glob matches)
+    with _input_as_directory(input_path) as resolved_dir:
+        # 3. Build inference config
+        cfg_dict = _build_inference_config(
+            checkpoint_cfg,
+            checkpoint_path=model,
+            input_path=resolved_dir,
+            patch_size=patch_size,
         )
-        biapy.run_job()
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
+
+        # 4. Write temporary YAML and run through standard BiaPy
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".yaml", prefix="biapy_predict_")
+        try:
+            with os.fdopen(tmp_fd, "w") as f:
+                yaml.dump(cfg_dict, f, default_flow_style=False)
+
+            from biapy._biapy import BiaPy
+
+            biapy = BiaPy(
+                config=tmp_path,
+                result_dir=os.path.abspath(output),
+                name=name,
+                run_id=run_id,
+                gpu=gpu or "",
+            )
+            biapy.run_job()
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
 
     return os.path.abspath(output)
 
@@ -260,7 +325,8 @@ def predict_from_cli(argv=None):
     parser.add_argument(
         "--input",
         required=True,
-        help="Path to directory containing input images.",
+        help="Input images: a directory, a single file, or a glob pattern "
+        "(e.g. 'images/*.tif').",
     )
     parser.add_argument(
         "--output",

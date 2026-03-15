@@ -45,10 +45,16 @@ BiaPy provides a simplified CLI and Python API for running inference with a trai
 ### Command line
 
 ```bash
-# Minimal invocation — just a checkpoint and input images
+# Run on a directory of images
 biapy predict --model my_model.pth --input images/
 
-# With options
+# Run on a single image
+biapy predict --model my_model.pth --input images/cell_001.tif
+
+# Run on images matching a glob pattern
+biapy predict --model my_model.pth --input 'images/*.tif'
+
+# With all options
 biapy predict \
     --model my_model.pth \
     --input images/ \
@@ -62,7 +68,7 @@ biapy predict \
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--model` | Path to a `.pth` checkpoint (BiaPy v3.5.1+) | *(required)* |
-| `--input` | Directory containing input images | *(required)* |
+| `--input` | A directory, single file, or glob pattern (e.g. `'imgs/*.tif'`) | *(required)* |
 | `--output` | Output directory | `./biapy_predictions` |
 | `--gpu` | GPU id (e.g. `0`). Omit for CPU | CPU |
 | `--patch-size` | Override patch size, e.g. `256,256,1` | from checkpoint |
@@ -74,12 +80,14 @@ biapy predict \
 ```python
 from biapy import predict
 
-predict(
-    model="my_model.pth",
-    input_path="images/",
-    output="results/",
-    gpu="0",
-)
+# Directory
+predict(model="my_model.pth", input_path="images/", output="results/", gpu="0")
+
+# Single file
+predict(model="my_model.pth", input_path="images/cell_001.tif")
+
+# Glob pattern
+predict(model="my_model.pth", input_path="images/*.tif")
 ```
 
 > **Note:** The simplified API requires checkpoints from BiaPy v3.5.1 or later
